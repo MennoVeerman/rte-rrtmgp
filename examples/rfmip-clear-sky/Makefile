@@ -1,7 +1,7 @@
 # Location of RTE+RRTMGP libraries, module files.
 RRTMGP_DIR = ../../build
 # Sets macros FC, FCFLAGS consistent with RTE+RRTMGP
-include $(RRTMGP_DIR)/Makefile.conf
+include $(RRTMGP_DIR)/Makefile.conf.ifort
 #
 # RRTMGP library, module files
 #
@@ -51,7 +51,7 @@ VPATH = ../
 #
 # Ancillary codes
 #
-ADDITIONS = mo_simple_netcdf.o mo_rfmip_io.o mo_load_coefficients.o
+ADDITIONS = mo_simple_netcdf.o mo_rfmip_io.o mo_load_coefficients.o mo_MLoutput.o
 
 all: rrtmgp_rfmip_lw rrtmgp_rfmip_sw
 
@@ -62,6 +62,8 @@ rrtmgp_rfmip_lw.o: rrtmgp_rfmip_lw.F90 $(ADDITIONS)
 rrtmgp_rfmip_sw:   rrtmgp_rfmip_sw.o   $(ADDITIONS)
 
 rrtmgp_rfmip_sw.o: rrtmgp_rfmip_sw.F90 $(ADDITIONS)
+
+mo_MLoutput.o: mo_MLoutput.F90
 
 mo_rfmip_io.o:          mo_rfmip_io.F90          mo_simple_netcdf.o
 

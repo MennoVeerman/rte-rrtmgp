@@ -72,6 +72,7 @@ program rrtmgp_rfmip_lw
   !   Here we're just reporting broadband fluxes
   !
   use mo_fluxes,             only: ty_fluxes_broadband
+  use mo_MLoutput,           only: init_MLoutput, write_MLoutput_tau
   ! --------------------------------------------------
   !
   ! modules for reading and writing files
@@ -98,15 +99,17 @@ program rrtmgp_rfmip_lw
                                 flxdn_file = 'rld_template.nc', flxup_file = 'rlu_template.nc'
   integer                    :: nargs, ncol, nlay, nexp, nblocks, block_size
   logical                    :: top_at_1
-  integer                    :: b
+  integer                    :: b,igas,wi,wj
   character(len=6)           :: block_size_char
 
+  logical                    :: write_MLout !output gases, pressure, temperature optical properties for ML
+  
   character(len=32 ), &
             dimension(:),             allocatable :: kdist_gas_names, gases_to_use
   real(wp), dimension(:,:,:),         allocatable :: p_lay, p_lev, t_lay, t_lev ! block_size, nlay, nblocks
   real(wp), dimension(:,:,:), target, allocatable :: flux_up, flux_dn
   real(wp), dimension(:,:  ),         allocatable :: sfc_emis, sfc_t            ! block_size, nblocks
-
+  integer                    :: ngas = 18
   !
   ! Classes used by rte+rrtmgp
   !
@@ -139,6 +142,7 @@ program rrtmgp_rfmip_lw
   ! How big is the problem? Does it fit into blocks of the size we've specified?
   !
   call read_size(rfmip_file, ncol, nlay, nexp)
+  
   if(nargs >= 1) then
     call get_command_argument(1, block_size_char)
     read(block_size_char, '(i6)') block_size
@@ -222,6 +226,9 @@ program rrtmgp_rfmip_lw
   !
   ! Loop over blocks
   !
+  call init_MLoutput(gases_to_use,ngas)
+
+
   do b = 1, nblocks
     fluxes%flux_up => flux_up(:,:,b)
     fluxes%flux_dn => flux_dn(:,:,b)
@@ -240,6 +247,8 @@ program rrtmgp_rfmip_lw
                                        optical_props,      &
                                        source,             &
                                        tlev = t_lev(:,:,b)))
+   call write_MLoutput_tau(18,ncol,nlay,gas_conc_array(b),gases_to_use,&
+                           p_lay,t_lay,optical_props)
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics (LW)')
 #endif

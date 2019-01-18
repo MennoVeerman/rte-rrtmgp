@@ -5,7 +5,7 @@ RRTMGP_DIR = ../rrtmgp
 RRTMGP_KERNEL_DIR = ../rrtmgp/kernels
 VPATH = $(RTE_DIR):$(RTE_KERNEL_DIR):$(RRTMGP_DIR):$(RRTMGP_KERNEL_DIR)
 
-include Makefile.conf
+include Makefile.conf.ifort
 include Makefile.rules
 
 all: librrtmgp.a librte.a
