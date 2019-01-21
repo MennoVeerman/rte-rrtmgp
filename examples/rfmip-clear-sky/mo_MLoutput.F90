@@ -17,9 +17,18 @@ contains
 
 subroutine init_MLoutput(gas_names,ngas)
   character(len=*), dimension(:), intent(in) :: gas_names
+  character(len=7), dimension(:), allocatable:: tau_names
+  character(6) :: string
   integer, intent(in) :: ngas
+  integer :: nbands = 256,iband
+  allocate(tau_names(nbands))
+  do iband = 1,nbands
+    write(string,'(A,I3.3)') 'tau',iband
+    tau_names(iband) = string       
+  enddo
+ 
   open(666,file=Filename,status='replace')
-  write(666,'(21A8)') gas_names(:ngas),'p_lay','t_lay','Taus -->'
+  write(666,'(276A8)') gas_names(:ngas),'p_lay','t_lay',tau_names(:)
   close(666)
 end subroutine init_MLoutput
 
