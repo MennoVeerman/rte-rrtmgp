@@ -94,7 +94,7 @@ program rrtmgp_rfmip_lw
   !
   ! Local variables
   !
-  character(len=132)         :: rfmip_file = 'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-0-4_none.nc', &
+  character(len=132)         :: rfmip_file = 'multiple_input_constant_gases_constant.nc', &
                                 kdist_file = 'coefficients_lw.nc', &
                                 flxdn_file = 'rld_template.nc', flxup_file = 'rlu_template.nc'
   integer                    :: nargs, ncol, nlay, nexp, nblocks, block_size
@@ -248,7 +248,7 @@ program rrtmgp_rfmip_lw
                                        source,             &
                                        tlev = t_lev(:,:,b)))
    call write_MLoutput_tau(18,ncol,nlay,gas_conc_array(b),gases_to_use,&
-                           p_lay,t_lay,optical_props)
+                           p_lay(:,:,b),p_lev(:,:,b),t_lay(:,:,b),t_lev(:,:,b),optical_props)
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics (LW)')
 #endif
@@ -259,6 +259,7 @@ program rrtmgp_rfmip_lw
 #ifdef USE_TIMING
     ret =  gptlstart('rte_lw')
 #endif
+
     call stop_on_err(rte_lw(optical_props,   &
                             top_at_1,        &
                             source,          &
