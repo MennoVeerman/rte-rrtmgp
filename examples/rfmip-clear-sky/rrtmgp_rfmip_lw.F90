@@ -22,6 +22,7 @@
 ! Error checking: Procedures in rte+rrtmgp return strings which are empty if no errors occured
 !   Check the incoming string, print it out and stop execution if non-empty
 !
+
 subroutine stop_on_err(error_msg)
   use iso_fortran_env, only : error_unit
   character(len=*), intent(in) :: error_msg
@@ -72,7 +73,8 @@ program rrtmgp_rfmip_lw
   !   Here we're just reporting broadband fluxes
   !
   use mo_fluxes,             only: ty_fluxes_broadband
-  use mo_MLoutput,           only: init_MLoutput, write_MLoutput_tau
+  use mo_MLoutput,           only: init_MLoutput, write_MLoutput_tau, write_MLoutput_planck
+  use mo_tensorflow,         only: write_predict
   ! --------------------------------------------------
   !
   ! modules for reading and writing files
@@ -94,12 +96,12 @@ program rrtmgp_rfmip_lw
   !
   ! Local variables
   !
-  character(len=132)         :: rfmip_file = 'multiple_input_constant_gases_constant.nc', &
+  character(len=132)         :: rfmip_file = 'validation_NN.nc',&!'input/multiple_input_constant_gases.nc', &
                                 kdist_file = 'coefficients_lw.nc', &
                                 flxdn_file = 'rld_template.nc', flxup_file = 'rlu_template.nc'
   integer                    :: nargs, ncol, nlay, nexp, nblocks, block_size
   logical                    :: top_at_1
-  integer                    :: b,igas,wi,wj
+  integer                    :: b,igas,wi,wj,wncol,wnlay
   character(len=6)           :: block_size_char
 
   logical                    :: write_MLout !output gases, pressure, temperature optical properties for ML
@@ -124,7 +126,7 @@ program rrtmgp_rfmip_lw
   type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
 
 #ifdef USE_TIMING
-  integer :: ret
+  integer :: ret, i
 #endif
   ! -------------------------------------------------------------------------------------------------
   !
@@ -142,7 +144,8 @@ program rrtmgp_rfmip_lw
   ! How big is the problem? Does it fit into blocks of the size we've specified?
   !
   call read_size(rfmip_file, ncol, nlay, nexp)
-  
+!  ncol = !testing
+  !nexp = 3!!testing
   if(nargs >= 1) then
     call get_command_argument(1, block_size_char)
     read(block_size_char, '(i6)') block_size
@@ -204,7 +207,6 @@ program rrtmgp_rfmip_lw
     p_lev(:,nlay+1,:) &
                  = k_dist%get_press_ref_min() + epsilon(k_dist%get_press_ref_min())
   end if
-
   !
   ! Allocate space for output fluxes (accessed via pointers in ty_fluxes_broadband),
   !   gas optical properties, and source functions. The %alloc() routines carry along
@@ -221,13 +223,18 @@ program rrtmgp_rfmip_lw
   !
   ret = gptlsetoption (gptlpercent, 1)        ! Turn on "% of" print
   ret = gptlsetoption (gptloverhead, 0)       ! Turn off overhead estimate
-  ret =  gptlinitialize()
+  ret = gptlinitialize()
 #endif
   !
   ! Loop over blocks
   !
+  !!open(111,file='opticalproperties.txt',status='replace')
   call init_MLoutput(gases_to_use,ngas)
+  
 
+#ifdef USE_TIMING
+  do i = 1, 32
+#endif
 
   do b = 1, nblocks
     fluxes%flux_up => flux_up(:,:,b)
@@ -247,8 +254,27 @@ program rrtmgp_rfmip_lw
                                        optical_props,      &
                                        source,             &
                                        tlev = t_lev(:,:,b)))
-   call write_MLoutput_tau(18,ncol,nlay,gas_conc_array(b),gases_to_use,&
-                           p_lay(:,:,b),p_lev(:,:,b),t_lay(:,:,b),t_lev(:,:,b),optical_props)
+    !call write_predict(5,ncol,nlay,gas_conc_array(b),gases_to_use,p_lay(:,:,b),t_lay(:,:,b),p_lev(:,:,b),t_lev(:,:,b),optical_props)
+
+    !if (b == 1) then
+    !    open(456,file='optical_properties.txt',status='replace')
+    !    do wi = 1,ncol
+    !    do wj = 1,nlay 
+    !    write(456,'(256E15.7)') optical_props%tau(wi,wj,:)
+    !    enddo
+    !    enddo
+    !    close(456)
+    !endif
+
+    !print *,'rrtmgprops: ',optical_props%tau(42,:,239)
+    !call write_MLoutput_tau(18,ncol,nlay,gas_conc_array(b),gases_to_use,&
+    !     p_lay(:,:,b),p_lev(:,:,b),t_lay(:,:,b),t_lev(:,:,b),optical_props)
+    !call write_MLoutput_planck(18,ncol,nlay,gas_conc_array(b),gases_to_use,&
+    !     p_lay(:,:,b),t_lay(:,:,b),t_lev(:,:,b),source)
+    
+    
+    !call write_predict(5,ncol,nlay,gas_conc_array(b),gases_to_use,p_lay(:,:,b),t_lay(:,:,b),p_lev(:,:,b),t_lev(:,:,b),optical_props)
+    !print *,'NNprops: ',optical_props%tau(42,:,239)
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics (LW)')
 #endif
@@ -270,6 +296,7 @@ program rrtmgp_rfmip_lw
 #endif
   end do
 #ifdef USE_TIMING
+  end do
   !
   ! End timers
   !
@@ -279,4 +306,5 @@ program rrtmgp_rfmip_lw
   ! --------------------------------------------------
   call unblock_and_write(trim(flxup_file), 'rlu', flux_up)
   call unblock_and_write(trim(flxdn_file), 'rld', flux_dn)
+  close(111)
 end program rrtmgp_rfmip_lw

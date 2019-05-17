@@ -89,7 +89,7 @@ program rrtmgp_rfmip_sw
   !
   ! Local variables
   !
-  character(len=132)         :: rfmip_file = 'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-0-4_none.nc', &
+  character(len=132)         :: rfmip_file = 'validation_NN.nc',&!'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-0-4_none.nc', &
                                 kdist_file = 'coefficients_sw.nc', &
                                 flxdn_file = 'rsd_template.nc', flxup_file = 'rsu_template.nc'
   integer                    :: nargs, ncol, nlay, nexp, nblocks, block_size
@@ -119,7 +119,7 @@ program rrtmgp_rfmip_sw
   type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
 
 #ifdef USE_TIMING
-  integer :: ret
+  integer :: ret, i
 #endif
   ! -------------------------------------------------------------------------------------------------
   !
@@ -137,6 +137,8 @@ program rrtmgp_rfmip_sw
   ! How big is the problem? Does it fit into blocks of the size we've specified?
   !
   call read_size(rfmip_file, ncol, nlay, nexp)
+  !ncol =2  !testign
+  nexp = 3! testing
   if(nargs >= 1) then
     call get_command_argument(1, block_size_char)
     read(block_size_char, '(i6)') block_size
@@ -220,10 +222,15 @@ program rrtmgp_rfmip_sw
   !
   ! Loop over blocks
   !
+#ifdef USE_TIMING
+  do i = 1, 32
+#endif
+ 
   do b = 1, nblocks
     fluxes%flux_up => flux_up(:,:,b)
     fluxes%flux_dn => flux_dn(:,:,b)
     !
+   
     ! Compute the optical properties of the atmosphere and the Planck source functions
     !    from pressures, temperatures, and gas concentrations...
     !
@@ -286,6 +293,7 @@ program rrtmgp_rfmip_sw
   ! End timers
   !
 #ifdef USE_TIMING
+  end do
   ret = gptlpr(block_size)
   ret = gptlfinalize()
 #endif

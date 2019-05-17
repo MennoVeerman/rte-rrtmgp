@@ -289,7 +289,14 @@ contains
     do b = 1, nblocks
       call stop_on_err(gas_conc_array(b)%set_vmr('o3', transpose(gas_conc_temp_3d(:,:,b))))
     end do
-
+    ! We switch to a 3D field for CO2
+    gas_conc_temp_3d = reshape(read_field(ncid, "co2", nlay_l, ncol_l,nexp_l), &
+                               shape = [nlay_l, blocksize, nblocks]) * 1e-6
+    do b = 1, nblocks
+      call stop_on_err(gas_conc_array(b)%set_vmr('co2',transpose(gas_conc_temp_3d(:,:,b))))
+    end do
+  
+         
     !
     ! All other gases are a function of experiment only
     !
@@ -298,7 +305,7 @@ contains
       !
       ! RRTMGP gas optics include NO2; RFMIP doesn't have this
       !
-      if(gas_name_in_file == 'h2o' .or. gas_name_in_file == 'o3' .or. gas_name_in_file == 'no2') cycle
+      if(gas_name_in_file == 'h2o' .or. gas_name_in_file == 'o3' .or. gas_name_in_file == 'no2' .or. gas_name_in_file == 'co2') cycle
       !
       ! Use a mapping between chemical formula and name if it exists
       !

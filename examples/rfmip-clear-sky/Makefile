@@ -51,7 +51,7 @@ VPATH = ../
 #
 # Ancillary codes
 #
-ADDITIONS = mo_simple_netcdf.o mo_rfmip_io.o mo_load_coefficients.o mo_MLoutput.o
+ADDITIONS = mo_simple_netcdf.o mo_rfmip_io.o mo_load_coefficients.o mo_MLoutput.o mo_tensorflow.o
 
 all: rrtmgp_rfmip_lw rrtmgp_rfmip_sw
 
@@ -65,9 +65,11 @@ rrtmgp_rfmip_sw.o: rrtmgp_rfmip_sw.F90 $(ADDITIONS)
 
 mo_MLoutput.o: mo_MLoutput.F90
 
+mo_tensorflow.o: mo_tensorflow.F90
+
 mo_rfmip_io.o:          mo_rfmip_io.F90          mo_simple_netcdf.o
 
 mo_load_coefficients.o: mo_load_coefficients.F90 mo_simple_netcdf.o
 
 clean:
-	-rm rrtmgp_rfmip_lw *.o *.mod *.optrpt ../*.optrpt
+	-rm rrtmgp_rfmip_sw rrtmgp_rfmip_lw *.o *.mod *.optrpt ../*.optrpt
