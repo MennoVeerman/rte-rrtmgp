@@ -76,7 +76,7 @@ program rrtmgp_rfmip_sw
   !
   use mo_load_coefficients,  only: load_and_init
   use mo_rfmip_io,           only: read_size, read_and_block_pt, read_and_block_gases_ty, unblock_and_write, &
-                                   read_and_block_sw_bc, read_kdist_gas_names
+                                   read_and_block_sw_bc, determine_gas_names
 #ifdef USE_TIMING
   !
   ! Timing library
@@ -89,77 +89,80 @@ program rrtmgp_rfmip_sw
   !
   ! Local variables
   !
-  character(len=132)         :: rfmip_file = 'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-1_none.nc', &
-                                kdist_file = 'coefficients_sw.nc', &
-                                flxdn_file = 'rsd_Efx_RTE-RRTMGP-181204_rad-irf_r1i1p1f1_gn.nc', &
-                                flxup_file = 'rsu_Efx_RTE-RRTMGP-181204_rad-irf_r1i1p1f1_gn.nc'
-  integer                    :: nargs, ncol, nlay, nexp, nblocks, block_size
-  logical                    :: top_at_1
-  integer                    :: b, icol, igpt
-  character(len=6)           :: block_size_char
+  character(len=132) :: rfmip_file = 'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-1_none.nc', &
+                        kdist_file = 'coefficients_sw.nc'
+  character(len=132) :: flxdn_file, flxup_file
+  integer            :: nargs, ncol, nlay, nbnd, ngpt, nexp, nblocks, block_size, forcing_index
+  logical            :: top_at_1
+  integer            :: b, icol, ibnd, igpt
+  character(len=4)   :: block_size_char, forcing_index_char = '1'
 
   character(len=32 ), &
-            dimension(:),             allocatable :: kdist_gas_names, gases_to_use
+            dimension(:),             allocatable :: kdist_gas_names, rfmip_gas_games
   real(wp), dimension(:,:,:),         allocatable :: p_lay, p_lev, t_lay, t_lev ! block_size, nlay, nblocks
   real(wp), dimension(:,:,:), target, allocatable :: flux_up, flux_dn
   real(wp), dimension(:,:  ),         allocatable :: surface_albedo, total_solar_irradiance, solar_zenith_angle
                                                      ! block_size, nblocks
+  real(wp), dimension(:,:  ),         allocatable :: sfc_alb_spec ! nbnd, block_size; spectrally-resolved surface albedo
   !
   ! Classes used by rte+rrtmgp
   !
-  type(ty_gas_optics_rrtmgp)                            :: k_dist
+  type(ty_gas_optics_rrtmgp)                     :: k_dist
   type(ty_optical_props_2str)                    :: optical_props
   type(ty_fluxes_broadband)                      :: fluxes
+
   real(wp), dimension(:,:), allocatable          :: toa_flux ! block_size, ngpt
-  real(wp), dimension(:  ), allocatable          :: def_tsi, mu0 ! block_size
-  logical , dimension(:  ), allocatable          :: usecol ! block_size, ngpt
+  real(wp), dimension(:  ), allocatable          :: def_tsi, mu0    ! block_size
+  logical , dimension(:,:), allocatable          :: usecol ! block_size, nblocks
   !
   ! ty_gas_concentration holds multiple columns; we make an array of these objects to
   !   leverage what we know about the input file
   !
   type(ty_gas_concs), dimension(:), allocatable  :: gas_conc_array
-
+  real(wp), parameter :: deg_to_rad = acos(-1._wp)/180._wp
 #ifdef USE_TIMING
   integer :: ret, i
 #endif
   ! -------------------------------------------------------------------------------------------------
   !
   ! Code starts
-  ! Argument list:
-  !   block size, input file, coefficient file, upflux file, downflux file
   !   all arguments are optional
   !
+  print *, "Usage: rrtmgp_rfmip_sw [block_size] [rfmip_file] [k-distribution_file] [forcing_index (1,2,3)]"
   nargs = command_argument_count()
-  if(nargs >= 2) call get_command_argument(2, rfmip_file)
-  if(nargs >= 3) call get_command_argument(3, kdist_file)
-  if(nargs >= 4) call get_command_argument(4, flxup_file)
-  if(nargs >= 5) call get_command_argument(5, flxdn_file)
-
-  ! How big is the problem? Does it fit into blocks of the size we've specified?
-  !
   call read_size(rfmip_file, ncol, nlay, nexp)
   if(nargs >= 1) then
     call get_command_argument(1, block_size_char)
-    read(block_size_char, '(i6)') block_size
+    read(block_size_char, '(i4)') block_size
   else
     block_size = ncol
   end if
+  if(nargs >= 2) call get_command_argument(2, rfmip_file)
+  if(nargs >= 3) call get_command_argument(3, kdist_file)
+  if(nargs >= 4) then
+    call get_command_argument(4, forcing_index_char)
+  end if
+
+  !
+  ! How big is the problem? Does it fit into blocks of the size we've specified?
+  !
   if(mod(ncol*nexp, block_size) /= 0 ) call stop_on_err("rrtmgp_rfmip_sw: number of columns doesn't fit evenly into blocks.")
   nblocks = (ncol*nexp)/block_size
   print *, "Doing ",  nblocks, "blocks of size ", block_size
 
+  read(forcing_index_char, '(i4)') forcing_index
+  if(forcing_index < 1 .or. forcing_index > 3) &
+    stop "Forcing index is invalid (must be 1,2 or 3)"
+  flxdn_file = 'rsd_Efx_RTE-RRTMGP-181204_rad-irf_r1i1p1f' // trim(forcing_index_char) // '_gn.nc'
+  flxup_file = 'rsu_Efx_RTE-RRTMGP-181204_rad-irf_r1i1p1f' // trim(forcing_index_char) // '_gn.nc'
+
   !
-  ! Names of gases known to the k-distribution.
+  ! Identify the set of gases used in the calculation based on the forcing index
+  !   A gas might have a different name in the k-distribution than in the files
+  !   provided by RFMIP (e.g. 'co2' and 'carbon_dioxide')
   !
-  call read_kdist_gas_names(kdist_file, kdist_gas_names)
-  !
-  ! Which gases will be included in the calculation?
-  !    By default we'll use all the gases the k-distribution can handle, but
-  !    we could provide variants i.e. using equivalent concentrations per RFMIP
-  !
-  gases_to_use = kdist_gas_names
-  print *, "Radiation calculation uses gases "
-  print *, "  ", (trim(gases_to_use(b)) // " ", b = 1, size(gases_to_use))
+  call determine_gas_names(rfmip_file, kdist_file, forcing_index, kdist_gas_names, rfmip_gas_games)
+  print *, "Calculation uses RFMIP gases: ", (trim(rfmip_gas_games(b)) // " ", b = 1, size(rfmip_gas_games))
 
   ! --------------------------------------------------
   !
@@ -177,7 +180,7 @@ program rrtmgp_rfmip_sw
   !
   ! Read the gas concentrations and surface properties
   !
-  call read_and_block_gases_ty(rfmip_file, block_size, gases_to_use, gas_conc_array)
+  call read_and_block_gases_ty(rfmip_file, block_size, kdist_gas_names, rfmip_gas_games, gas_conc_array)
   call read_and_block_sw_bc(rfmip_file, block_size, surface_albedo, total_solar_irradiance, solar_zenith_angle)
   !
   ! Read k-distribution information. load_and_init() reads data from netCDF and calls
@@ -186,9 +189,11 @@ program rrtmgp_rfmip_sw
   call load_and_init(k_dist, trim(kdist_file), gas_conc_array(1))
   if(.not. k_dist%source_is_external()) &
     stop "rrtmgp_rfmip_sw: k-distribution file isn't SW"
+  nbnd = k_dist%get_nband()
+  ngpt = k_dist%get_ngpt()
 
   allocate(toa_flux(block_size, k_dist%get_ngpt()), &
-           def_tsi(block_size), mu0(block_size), usecol(block_size))
+           def_tsi(block_size), usecol(block_size,nblocks))
   !
   ! RRTMGP won't run with pressure less than its minimum. The top level in the RFMIP file
   !   is set to 10^-3 Pa. Here we pretend the layer is just a bit less deep.
@@ -202,13 +207,28 @@ program rrtmgp_rfmip_sw
   end if
 
   !
+  ! RTE will fail if passed solar zenith angles greater than 90 degree. We replace any with
+  !   nighttime columns with a default solar zenith angle. We'll mask these out later, of
+  !   course, but this gives us more work and so a better measure of timing.
+  !
+  do b = 1, nblocks
+    usecol(1:block_size,b)  = solar_zenith_angle(1:block_size,b) < 90._wp - 2._wp * spacing(90._wp)
+  end do
+
+  !
   ! Allocate space for output fluxes (accessed via pointers in ty_fluxes_broadband),
   !   gas optical properties, and source functions. The %alloc() routines carry along
   !   the spectral discretization from the k-distribution.
   !
   allocate(flux_up(block_size, nlay+1, nblocks), &
            flux_dn(block_size, nlay+1, nblocks))
+  allocate(mu0(block_size), sfc_alb_spec(nbnd,block_size))
   call stop_on_err(optical_props%alloc_2str(block_size, nlay, k_dist))
+  ! Handle GPU data. Leave mu0, sfc_alb_spec, toa_flux, and def_tsi on CPU for
+  ! now, and let compiler or CUDA runtime handle data movement because not
+  ! everything is in kernels at the next level down yet.
+  !$acc enter data create(optical_props%tau, optical_props%ssa, optical_props%g)
+  !!!$acc enter data create(mu0,sfc_alb_spec,toa_flux,def_tsi)
   ! --------------------------------------------------
 #ifdef USE_TIMING
   !
@@ -243,22 +263,49 @@ program rrtmgp_rfmip_sw
 #ifdef USE_TIMING
     ret =  gptlstop('gas_optics (SW)')
 #endif
+    ! Boundary conditions
+    !   (This is partly to show how to keep work on GPUs using OpenACC in a host application)
+    !
+    ! What's the total solar irradiance assumed by RRTMGP?
+    !  The first two loops could be more expressed more ompactly as def_tsi(1:block_size) = sum(toa_flux, dim=2)
+    !
+    !$acc parallel loop
+    do icol = 1, block_size
+      def_tsi(icol) = toa_flux(icol, 1)
+    end do
+    !$acc parallel loop collapse(2)
+    do igpt = 1, ngpt
+      do icol = 1, block_size
+        !$acc atomic update
+        def_tsi(icol) = def_tsi(icol) + toa_flux(icol, igpt)
+      end do
+    end do
     !
     ! Normalize incoming solar flux to match RFMIP specification
     !
-    def_tsi(1:block_size) = sum(toa_flux, dim=2)
-    do igpt = 1, k_dist%get_ngpt()
+    !$acc parallel loop collapse(2)
+    do igpt = 1, ngpt
       do icol = 1, block_size
         toa_flux(icol,igpt) = toa_flux(icol,igpt) * total_solar_irradiance(icol,b)/def_tsi(icol)
       end do
     end do
     !
-    ! RTE will fail if passed solar zenith angles greater than 90 degree. We replace any with
-    !   nighttime columns with a default solar zenith angle. We'll mask these out later, of
-    !   course, but this gives us more work and so a better measure of timing.
+    ! Expand the spectrally-constant surface albedo to a per-band albedo for each column
     !
-    usecol(1:block_size)  = solar_zenith_angle(1:block_size,b) < 90._wp - 2._wp * spacing(90._wp)
-    mu0(1:block_size) = merge(cos(solar_zenith_angle(:,b) * acos(-1._wp)/180._wp), 1._wp, usecol)
+    !$acc parallel loop collapse(2)
+    do icol = 1, block_size
+      do ibnd = 1, nbnd
+        sfc_alb_spec(ibnd,icol) = surface_albedo(icol,b)
+      end do
+    end do
+    !
+    ! Cosine of the solar zenith angle
+    !
+    !$acc parallel loop
+    do icol = 1, block_size
+      mu0(icol) = merge(cos(solar_zenith_angle(icol,b)*deg_to_rad), 1._wp, usecol(icol,b))
+    end do
+
     !
     ! ... and compute the spectrally-resolved fluxes, providing reduced values
     !    via ty_fluxes_broadband
@@ -270,8 +317,8 @@ program rrtmgp_rfmip_sw
                             top_at_1,        &
                             mu0,             &
                             toa_flux,        &
-                            spread(surface_albedo(:,b), 1, ncopies = k_dist%get_nband()), &
-                            spread(surface_albedo(:,b), 1, ncopies = k_dist%get_nband()), &
+                            sfc_alb_spec,    &
+                            sfc_alb_spec,    &
                             fluxes))
 #ifdef USE_TIMING
     ret =  gptlstop('rte_sw')
@@ -280,7 +327,7 @@ program rrtmgp_rfmip_sw
     ! Zero out fluxes for which the original solar zenith angle is > 90 degrees.
     !
     do icol = 1, block_size
-      if(.not. usecol(icol)) then
+      if(.not. usecol(icol,b)) then
         flux_up(icol,:,b)  = 0._wp
         flux_dn(icol,:,b)  = 0._wp
       end if
@@ -294,6 +341,8 @@ program rrtmgp_rfmip_sw
   ret = gptlpr(block_size)
   ret = gptlfinalize()
 #endif
+  !$acc exit data delete(optical_props%tau, optical_props%ssa, optical_props%g)
+  !!!$acc exit data delete(mu0,sfc_alb_spec,toa_flux,def_tsi)
   ! --------------------------------------------------
   call unblock_and_write(trim(flxup_file), 'rsu', flux_up)
   call unblock_and_write(trim(flxdn_file), 'rsd', flux_dn)
